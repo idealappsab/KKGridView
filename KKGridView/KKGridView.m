@@ -135,6 +135,7 @@ struct KKSectionMetrics {
 @synthesize cellSize = _cellSize;
 @synthesize gridFooterView = _gridFooterView;
 @synthesize gridHeaderView = _gridHeaderView;
+@synthesize manualHeaderView = _manualHeaderView;
 @synthesize numberOfColumns = _numberOfColumns;
 @synthesize backgroundView = _backgroundView;
 
@@ -629,6 +630,9 @@ struct KKSectionMetrics {
 
 - (void)_configureAuxiliaryView:(KKGridViewViewInfo *)headerOrFooter inSection:(NSUInteger)section withStickPoint:(CGFloat)stickPoint height:(CGFloat)height
 {
+    if (isnan(stickPoint))
+        return;
+    
     headerOrFooter.view.frame = CGRectMake(0.f, stickPoint, self.bounds.size.width, height);
     headerOrFooter->stickPoint = stickPoint;
     headerOrFooter->section = section;
@@ -1395,7 +1399,10 @@ struct KKSectionMetrics {
 #pragma mark - Touch Handling
 
 - (void)_handleSelection:(UILongPressGestureRecognizer *)recognizer
-{    
+{
+    if (_manualHeaderView && CGRectContainsPoint(_manualHeaderView.frame, [recognizer locationInView:self]))
+        return;
+    
     if (_indexView) {
         if (recognizer.state == UIGestureRecognizerStateBegan && CGRectContainsPoint(_indexView.frame, [recognizer locationInView:self])) {
             [self setScrollEnabled:NO];
@@ -1460,6 +1467,4 @@ struct KKSectionMetrics {
                                         _indexView.frame.size.width,
                                         _indexView.frame.size.height)];
 }
-
 @end
-
