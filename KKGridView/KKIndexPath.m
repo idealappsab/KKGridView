@@ -19,30 +19,32 @@
         _index = index;
         _section = section;
     }
-
+    
     return self;
 }
 
-- (NSComparisonResult)compare:(id)object
+- (NSComparisonResult)compare:(KKIndexPath *)otherIndexPath
 {
-    KKIndexPath *otherIndexPath = (KKIndexPath *)object;
-//  Identical comparison
+    // Identical comparison
     if (otherIndexPath.section == self.section && otherIndexPath.index == self.index) {
         return NSOrderedSame;
     }
-//  Sectional comparison
+    
+    // Sectional comparison
     if (otherIndexPath.section > self.section) {
         return NSOrderedAscending;
     } else if (otherIndexPath.section < self.section) {
         return NSOrderedDescending;
     }
-//  Inter-section index comparison
+    
+    // Inter-section index comparison
     if (otherIndexPath.index > self.index) {
         return NSOrderedAscending;
     } else if (otherIndexPath.index < self.index) {
         return NSOrderedDescending;
     }
-//  No result could be found (this should never happen, kept in to keep the compiler happy)
+    
+    // No result could be found (this should never happen, kept in to keep the compiler happy)
     return NSOrderedSame;
 }
 
@@ -54,7 +56,6 @@
 - (id)initWithNSIndexPath:(NSIndexPath *)indexPath 
 {
     if ((self = [super init])) {
-//      Simple name change/assignment..
         self.index = indexPath.row;
         self.section = indexPath.section;
     }
@@ -67,10 +68,9 @@
     return [[self alloc] initWithNSIndexPath:indexPath];
 }
 
-- (BOOL)isEqual:(id)object
+- (BOOL)isEqual:(KKIndexPath *)indexPath
 {
-    KKIndexPath *indexPath = (KKIndexPath *)object;    
-    return (indexPath.index == self.index && indexPath.section == self.section);
+    return indexPath.index == self.index && indexPath.section == self.section;
 }
 
 - (NSUInteger)hash
@@ -87,7 +87,8 @@
 
 - (NSString *)description
 {
-    return [NSString stringWithFormat:@"%@ {Index: %i; Section: %i}", NSStringFromClass([self class]), _index, _section];
+    return [NSString stringWithFormat:@"%@ {Index: %i; Section: %i}", 
+            NSStringFromClass([self class]), _index, _section];
 }
 
 #pragma mark - KKIndexPath to NSIndexPath
