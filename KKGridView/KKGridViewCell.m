@@ -10,18 +10,15 @@
 #import <KKGridView/KKGridView.h>
 
 @interface KKGridViewCell ()
-
 - (UIImage *)_defaultBlueBackgroundRendition;
 - (void)_updateSubviewSelectionState;
 - (void)_layoutAccessories;
-
 @end
 
 @implementation KKGridViewCell {
     UIButton *_badgeView;
-    NSString *_badgeText;
-
     UIColor *_userContentViewBackgroundColor;
+    BOOL _ignoreUserContentViewBackground;
 }
 
 @synthesize accessoryPosition = _accessoryPosition;
@@ -40,7 +37,7 @@
 
 + (NSString *)cellIdentifier
 {
-    return NSStringFromClass([self class]);
+    return NSStringFromClass(self);
 }
 
 + (id)cellForGridView:(KKGridView *)gridView
@@ -61,20 +58,18 @@
     if ((self = [super initWithFrame:frame])) {
         self.reuseIdentifier = reuseIdentifier;
         
-        _contentView = [[UIView alloc] initWithFrame:self.bounds];
-        _contentView.backgroundColor = [UIColor whiteColor];
-        [self addSubview:_contentView];
-        
         _backgroundView = [[UIView alloc] initWithFrame:self.bounds];
         _backgroundView.backgroundColor = [UIColor whiteColor];
         [self addSubview:_backgroundView];
         
         _selectedBackgroundView = [[UIView alloc] initWithFrame:self.bounds];
-        _selectedBackgroundView.backgroundColor = [UIColor colorWithPatternImage:[self _defaultBlueBackgroundRendition]];
         _selectedBackgroundView.hidden = YES;
         _selectedBackgroundView.alpha = 0.f;
         [self addSubview:_selectedBackgroundView];
-        [self bringSubviewToFront:_contentView];
+        
+        _contentView = [[UIView alloc] initWithFrame:self.bounds];
+        _contentView.backgroundColor = [UIColor whiteColor];
+        [self addSubview:_contentView];
         
         [_contentView addObserver:self forKeyPath:@"backgroundColor" options:NSKeyValueObservingOptionNew context:NULL];
     }
@@ -83,29 +78,33 @@
 }
 
 - (void)awakeFromNib {
-	
-	if (!_contentView) {
-		_contentView = [[UIView alloc] initWithFrame:self.bounds];
-		_contentView.backgroundColor = [UIColor whiteColor];
-	}
-	[self addSubview:_contentView];
-	
-	if (!_backgroundView) {
-		_backgroundView = [[UIView alloc] initWithFrame:self.bounds];
-		_backgroundView.backgroundColor = [UIColor whiteColor];
-	}
-	[self addSubview:_backgroundView];
-	
-	if (!_selectedBackgroundView) {
-		_selectedBackgroundView = [[UIView alloc] initWithFrame:self.bounds];
-		_selectedBackgroundView.backgroundColor = [UIColor colorWithPatternImage:[self _defaultBlueBackgroundRendition]];
-	}
-	_selectedBackgroundView.hidden = YES;
-	_selectedBackgroundView.alpha = 0.f;
-	[self addSubview:_selectedBackgroundView];
-	[self bringSubviewToFront:_contentView];
-	
-	[_contentView addObserver:self forKeyPath:@"backgroundColor" options:NSKeyValueObservingOptionNew context:NULL];
+    if (!_contentView) {
+        _contentView = [[UIView alloc] initWithFrame:self.bounds];
+        _contentView.backgroundColor = [UIColor whiteColor];
+    }
+    
+    if (!_backgroundView) {
+        _backgroundView = [[UIView alloc] initWithFrame:self.bounds];
+        _backgroundView.backgroundColor = [UIColor whiteColor];
+    }
+    
+    if (!_selectedBackgroundView) {
+        _selectedBackgroundView = [[UIView alloc] initWithFrame:self.bounds];
+    }
+    
+    _selectedBackgroundView.hidden = YES;
+    _selectedBackgroundView.alpha = 0.f;
+    
+    [self addSubview:_contentView];
+    [self addSubview:_backgroundView];
+    [self addSubview:_selectedBackgroundView];
+    
+    [self bringSubviewToFront:_contentView];
+    
+    [_contentView addObserver:self 
+                   forKeyPath:@"backgroundColor" 
+                      options:NSKeyValueObservingOptionNew
+                      context:NULL];
 }
 
 - (void)dealloc
@@ -126,49 +125,73 @@
 
 - (void)setAccessoryType:(KKGridViewCellAccessoryType)accessoryType
 {
-	if (_accessoryType != accessoryType) {
-		_accessoryType = accessoryType;
-		[self setNeedsLayout];
-	}
+    if (_accessoryType != accessoryType) {
+        _accessoryType = accessoryType;
+        [self setNeedsLayout];
+    }
 }
 
 - (void)setEditing:(BOOL)editing animated:(BOOL)animated
 {
-    [UIView animateWithDuration:KKGridViewDefaultAnimationDuration animations:^{
-        self.editing = editing;
-    }];
+    if (animated) {
+        [UIView beginAnimations:nil context:NULL];
+        UIView.animationDuration = KKGridViewDefaultAnimationDuration;
+    }
+    
+    self.editing = editing;
+    
+    if (animated)
+        [UIView commitAnimations];
 }
 
 - (void)setSelected:(BOOL)selected
 {
-	if (_selected != selected) {
-		_selected = selected;
-		[self setNeedsLayout];
-	}
+    if (_selected != selected) {
+        _selected = selected;
+        [self setNeedsLayout];
+        
+        if (selected && !_selectedBackgroundView.backgroundColor)
+            _selectedBackgroundView.backgroundColor = [UIColor colorWithPatternImage:[self _defaultBlueBackgroundRendition]];
+    }
 }
 
 - (void)setHighlighted:(BOOL)highlighted
 {
-	if (_highlighted != highlighted) {
-		_highlighted = highlighted;
-		[self setNeedsLayout];
-	}
+    if (_highlighted != highlighted) {
+        _highlighted = highlighted;
+        [self setNeedsLayout];
+        
+        if (highlighted && !_selectedBackgroundView.backgroundColor)
+            _selectedBackgroundView.backgroundColor = [UIColor colorWithPatternImage:[self _defaultBlueBackgroundRendition]];
+    }
 }
 
 
 - (void)setSelected:(BOOL)selected animated:(BOOL)animated
 {
-	if (_selected != selected) {
+    if (_selected != selected) {
         NSTimeInterval duration = animated ? 0.2 : 0;
         UIViewAnimationOptions opts = UIViewAnimationOptionAllowUserInteraction | UIViewAnimationOptionAllowAnimatedContent;
         
-		[UIView animateWithDuration:duration delay:0 options:opts animations:^{
-			_selected = selected;
-			_selectedBackgroundView.alpha = selected ? 1.f : 0.f;
-		} completion:^(BOOL finished) {
-			[self setNeedsLayout];
-		}];
-	}
+        [UIView animateWithDuration:duration delay:0 options:opts animations:^{
+            _selected = selected;
+            _selectedBackgroundView.alpha = selected ? 1.f : 0.f;
+        } completion:^(BOOL finished) {
+            [self setNeedsLayout];
+        }];
+    }
+}
+
+- (void)setSelectedBackgroundView:(UIView *)selectedBackgroundView
+{
+    if (_selectedBackgroundView == selectedBackgroundView)
+        return;
+    
+    _ignoreUserContentViewBackground = !!_selectedBackgroundView; // if we have a custom background view, we don't set the color.
+    
+    if (selectedBackgroundView)
+        _selectedBackgroundView = selectedBackgroundView;
+    else _selectedBackgroundView = [[UIView alloc] initWithFrame:self.bounds];
 }
 
 - (void)_updateSubviewSelectionState
@@ -199,12 +222,12 @@
         _contentView.backgroundColor = [UIColor clearColor];
         _contentView.opaque = NO;
     } else {
-        _contentView.backgroundColor = (_userContentViewBackgroundColor) ? _userContentViewBackgroundColor : [UIColor whiteColor];
+        _contentView.backgroundColor = _userContentViewBackgroundColor ? _userContentViewBackgroundColor : [UIColor whiteColor];
     }
     
     _selectedBackgroundView.hidden = !_selected && !_highlighted;
     _backgroundView.hidden = _selected || _highlighted;
-    _selectedBackgroundView.alpha = _highlighted ? 1.f : (_selected ? 1.f : 0.f);
+    _selectedBackgroundView.alpha = (_selected || _highlighted) ? 1.f : 0.f;
     
     [self _layoutAccessories];
 }
@@ -217,7 +240,7 @@
     
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSString *bundlePath = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"KKGridView.bundle"];
+        NSString *bundlePath = [[NSBundle mainBundle].resourcePath stringByAppendingPathComponent:@"KKGridView.bundle"];
         NSBundle *bundle = [NSBundle bundleWithPath:bundlePath];
         UIImage *(^getBundleImage)(NSString *) = ^(NSString *n) {
             return [UIImage imageWithContentsOfFile:[bundle pathForResource:n ofType:@"png"]];
@@ -261,7 +284,7 @@
         [KKGridViewCellAccessoryTypeBadgeNumeric]     = {29.f, 0.f},
         [KKGridViewCellAccessoryTypeCheckmark]        = {14.f, 0.f},
     };
-        
+    
     CGFloat w = self.bounds.size.width;
     CGFloat h = self.bounds.size.height;
     CGFloat s = map[self.accessoryType].sideLength;
@@ -279,7 +302,7 @@
     
     if (normalBadges[self.accessoryType])
     {
-         [_badgeView setBackgroundImage:normalBadges[self.accessoryType] forState:UIControlStateNormal];   
+        [_badgeView setBackgroundImage:normalBadges[self.accessoryType] forState:UIControlStateNormal];   
     }
     
     if (pressedBadges[self.accessoryType])

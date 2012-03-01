@@ -1,6 +1,7 @@
 <div style="width:768px; height: 200px; position: relative; margin: 0 auto;"> 
 <img style="position: relative; width: 768px; height: 200px; margin: 0;" src="http://f.cl.ly/items/1c230w0U2d3H3I021338/KKGridViewBanner.png" alt="KKGridView"/>
 </div>
+
 High-performance iOS grid view (MIT license). **Requirements**: you
 need to build `KKGridView` with a compiler that supports *Automatic
 Reference Counting*. We know this stings at first, but we strongly
@@ -9,7 +10,8 @@ now. Moreover, the move to ARC improved `KKGridView`'s performance
 greatly. Remember that your project need not use ARC to include
 `KKGridView`.
 
-### Contributing If you see something you don't like, you are always
+### Contributing
+If you see something you don't like, you are always
 welcome to submit it as an issue. But if you can find it in your
 heart, we'd be so grateful if you would fix it yourself and send us a
 pull request. We promise not to bite!

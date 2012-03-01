@@ -56,6 +56,10 @@ typedef enum {
 - (CGRect)rectForCellAtIndexPath:(KKIndexPath *)indexPath;
 - (NSArray *)visibleIndexPaths;
 
+- (KKIndexPath *)indexPathForCell:(KKGridViewCell *)cell;
+- (KKIndexPath *)indexPathForItemAtPoint:(CGPoint)point;
+- (NSArray *)indexPathsForItemsInRect:(CGRect)rect;
+
 #pragma mark - Reloading
 
 - (void)reloadContentSize;
