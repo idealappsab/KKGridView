@@ -13,12 +13,12 @@
 #import <KKGridView/KKGridViewUpdateStack.h>
 #import <KKGridView/KKGridViewCell.h>
 #import <KKGridView/KKGridViewIndexView.h>
-
-#define KKGridViewDefaultAnimationStaggerInterval 0.025
+#import <KKGridView/KKGridViewSectionLabel.h>
 
 struct KKSectionMetrics {
     CGFloat footerHeight;
     CGFloat headerHeight;
+    CGFloat rowHeight;
     CGFloat sectionHeight;
     NSUInteger itemCount;
 };
@@ -26,6 +26,7 @@ struct KKSectionMetrics {
 @interface KKGridView () <UIGestureRecognizerDelegate,UIScrollViewDelegate> {
     // View-wrapper containers
     NSMutableArray *_footerViews;
+    NSMutableArray *_rowViews;
     NSMutableArray *_headerViews;
     
     // Metrics
@@ -59,6 +60,7 @@ struct KKSectionMetrics {
         unsigned int heightForFooter:1;
         unsigned int viewForHeader:1;
         unsigned int viewForFooter:1;
+        unsigned int viewForRow:1;
         unsigned int sectionIndexTitles:1;
         unsigned int sectionForSectionIndexTitle:1;
     } _dataSourceRespondsTo;
@@ -104,7 +106,7 @@ struct KKSectionMetrics {
 - (void)_enqueueCell:(KKGridViewCell *)cell withIdentifier:(NSString *)identifier;
 
 // Model modifiers
-- (void)_incrementCellsAtIndexPath:(KKIndexPath *)fromPath toIndexPath:(KKIndexPath *)toPath byAmount:(NSUInteger)amount negative:(BOOL)isNegative;
+- (void)_incrementCellsAtIndexPath:(KKIndexPath *)fromPath toIndexPath:(KKIndexPath *)toPath byAmount:(NSInteger)amount;
 
 // Internal getters relating to cells
 - (KKGridViewCell *)_loadCellAtVisibleIndexPath:(KKIndexPath *)indexPath;
@@ -117,6 +119,7 @@ struct KKSectionMetrics {
 - (void)_highlightItemAtIndexPath:(KKIndexPath *)indexPath;
 - (void)_cancelHighlighting;
 - (void)_handleSelection:(UILongPressGestureRecognizer *)recognizer;
+- (void)_deselectAll;
 
 // Headers and Footer views
 - (UIView *)_viewForHeaderInSection:(NSUInteger)section;
@@ -126,6 +129,7 @@ struct KKSectionMetrics {
 - (void)_insertSubviewBelowScrollbar:(UIView *)view;
 
 // Animation Helpers
++ (void)animateIf:(BOOL)animated duration:(NSTimeInterval)duration delay:(NSTimeInterval)delay options:(UIViewAnimationOptions)options block:(void(^)())block;
 + (void)animateIf:(BOOL)animated delay:(NSTimeInterval)delay options:(UIViewAnimationOptions)options block:(void(^)())block;
 @end
 
@@ -133,14 +137,17 @@ struct KKSectionMetrics {
 
 @synthesize dataSource = _dataSource;
 @synthesize gridDelegate = _gridDelegate;
+
 @synthesize allowsMultipleSelection = _allowsMultipleSelection;
-@synthesize cellPadding = _cellPadding;
-@synthesize cellSize = _cellSize;
+@synthesize backgroundView = _backgroundView;
+@synthesize layoutDirection = _layoutDirection;
+
 @synthesize gridFooterView = _gridFooterView;
 @synthesize gridHeaderView = _gridHeaderView;
-@synthesize manualHeaderView = _manualHeaderView;
+
+@synthesize cellPadding = _cellPadding;
+@synthesize cellSize = _cellSize;
 @synthesize numberOfColumns = _numberOfColumns;
-@synthesize backgroundView = _backgroundView;
 
 @dynamic numberOfSections;
 
@@ -169,22 +176,27 @@ struct KKSectionMetrics {
     return self;
 }
 
+// damn right I didn't include nib support
+
 - (void)_sharedInitialization
 {
+    //    CONTAINMENT! GET ME SOME CONTAINMENT UNITS NOW!
     _reusableCells = [[NSMutableDictionary alloc] init];
     _visibleCells = [[NSMutableDictionary alloc] init];
     _selectedIndexPaths = [[NSMutableSet alloc] init];
     _updateStack = [[KKGridViewUpdateStack alloc] init];
     
+    //    Manual authority override, bitch
+    _layoutDirection = KKGridViewLayoutDirectionVertical;
     
-    self.alwaysBounceVertical = YES;
+    //    Set basic UIScrollView properties
+    self.alwaysBounceVertical = _layoutDirection ? KKGridViewLayoutDirectionVertical : YES; 
+    self.alwaysBounceHorizontal = _layoutDirection != KKGridViewLayoutDirectionVertical; 
     self.delaysContentTouches = YES;
     self.canCancelContentTouches = YES;
     
-    self.delegate = self;
-    
     _selectionRecognizer = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(_handleSelection:)];
-    _selectionRecognizer.minimumPressDuration = 0.01;
+    _selectionRecognizer.minimumPressDuration = 0.015;
     _selectionRecognizer.delegate = self;
     _selectionRecognizer.cancelsTouchesInView = NO;
     [self addGestureRecognizer:_selectionRecognizer];
@@ -196,12 +208,18 @@ struct KKSectionMetrics {
     self.cellPadding = CGSizeMake(4.f, 4.f);
     self.allowsMultipleSelection = NO;
     self.backgroundColor = [UIColor whiteColor];
+    
+    
+    [self addObserver:self forKeyPath:@"contentOffset" options:NSKeyValueObservingOptionNew context:NULL];
+    [self addObserver:self forKeyPath:@"tracking" options:NSKeyValueObservingOptionNew context:NULL];
 }
 
 #pragma mark - Cleanup
 
 - (void)dealloc
 {
+    [self removeObserver:self forKeyPath:@"contentOffset"];
+    [self removeObserver:self forKeyPath:@"tracking"];
     [self removeGestureRecognizer:_selectionRecognizer];
     [self _cleanupMetrics];
 }
@@ -220,15 +238,18 @@ struct KKSectionMetrics {
     if (dataSource != _dataSource)
     {
         _dataSource = dataSource;
-        _dataSourceRespondsTo.numberOfSections = [_dataSource respondsToSelector:@selector(numberOfSectionsInGridView:)];
-        _dataSourceRespondsTo.titleForHeader = [_dataSource respondsToSelector:@selector(gridView:titleForHeaderInSection:)];
-        _dataSourceRespondsTo.titleForFooter = [_dataSource respondsToSelector:@selector(gridView:titleForFooterInSection:)];
-        _dataSourceRespondsTo.heightForHeader = [_dataSource respondsToSelector:@selector(gridView:heightForHeaderInSection:)];
-        _dataSourceRespondsTo.heightForFooter = [_dataSource respondsToSelector:@selector(gridView:heightForFooterInSection:)];
-        _dataSourceRespondsTo.viewForHeader = [_dataSource respondsToSelector:@selector(gridView:viewForHeaderInSection:)];
-        _dataSourceRespondsTo.viewForFooter = [_dataSource respondsToSelector:@selector(gridView:viewForFooterInSection:)];
-        _dataSourceRespondsTo.sectionIndexTitles = [_dataSource respondsToSelector:@selector(sectionIndexTitlesForGridView:)];
-        _dataSourceRespondsTo.sectionForSectionIndexTitle = [_dataSource respondsToSelector:@selector(gridView:sectionForSectionIndexTitle:atIndex:)];
+#define RESPONDS_TO(sel) [_dataSource respondsToSelector:@selector(sel)]
+        _dataSourceRespondsTo.numberOfSections   = RESPONDS_TO(numberOfSectionsInGridView:);
+        _dataSourceRespondsTo.titleForHeader     = RESPONDS_TO(gridView:titleForHeaderInSection:);
+        _dataSourceRespondsTo.titleForFooter     = RESPONDS_TO(gridView:titleForFooterInSection:);
+        _dataSourceRespondsTo.heightForHeader    = RESPONDS_TO(gridView:heightForHeaderInSection:);
+        _dataSourceRespondsTo.heightForFooter    = RESPONDS_TO(gridView:heightForFooterInSection:);
+        _dataSourceRespondsTo.viewForHeader      = RESPONDS_TO(gridView:viewForHeaderInSection:);
+        _dataSourceRespondsTo.viewForFooter      = RESPONDS_TO(gridView:viewForFooterInSection:);
+        _dataSourceRespondsTo.viewForRow         = RESPONDS_TO(gridView:viewForRow:inSection:);
+        _dataSourceRespondsTo.sectionIndexTitles = RESPONDS_TO(sectionIndexTitlesForGridView:);
+        _dataSourceRespondsTo.sectionForSectionIndexTitle = RESPONDS_TO(gridView:sectionForSectionIndexTitle:atIndex:);
+#undef RESPONDS_TO
         [self reloadData];
     }
 }
@@ -238,11 +259,13 @@ struct KKSectionMetrics {
     if (gridDelegate != _gridDelegate)
     {
         _gridDelegate = gridDelegate;
-        _delegateRespondsTo.didSelectItem = [_gridDelegate respondsToSelector:@selector(gridView:didSelectItemAtIndexPath:)];
-        _delegateRespondsTo.willSelectItem = [_gridDelegate respondsToSelector:@selector(gridView:willSelectItemAtIndexPath:)];
-        _delegateRespondsTo.didDeselectItem = [_gridDelegate respondsToSelector:@selector(gridView:didDeselectItemAtIndexPath:)];
-        _delegateRespondsTo.willDeselectItem = [_gridDelegate respondsToSelector:@selector(gridView:willDeselectItemAtIndexPath:)];
-        _delegateRespondsTo.willDisplayCell = [_gridDelegate respondsToSelector:@selector(gridView:willDisplayCell:atIndexPath:)];
+#define RESPONDS_TO(sel) [_gridDelegate respondsToSelector:@selector(sel)]
+        _delegateRespondsTo.didSelectItem    = RESPONDS_TO(gridView:didSelectItemAtIndexPath:);
+        _delegateRespondsTo.willSelectItem   = RESPONDS_TO(gridView:willSelectItemAtIndexPath:);
+        _delegateRespondsTo.didDeselectItem  = RESPONDS_TO(gridView:didDeselectItemAtIndexPath:);
+        _delegateRespondsTo.willDeselectItem = RESPONDS_TO(gridView:willDeselectItemAtIndexPath:);
+        _delegateRespondsTo.willDisplayCell  = RESPONDS_TO(gridView:willDisplayCell:atIndexPath:);
+#undef RESPONDS_TO
     }
 }
 
@@ -250,6 +273,7 @@ struct KKSectionMetrics {
 {
     CGRect oldFrame = self.frame;
     [super setFrame:frame];
+    //    Check if an actual change is needed... repeated in corresponding bounds method.
     if (!CGSizeEqualToSize(frame.size, oldFrame.size)) {
         [self _respondToBoundsChange];
     }
@@ -274,7 +298,11 @@ struct KKSectionMetrics {
 
 - (void)setAllowsMultipleSelection:(BOOL)allowsMultipleSelection
 {
-    if (!allowsMultipleSelection && _allowsMultipleSelection == YES) {
+    if (allowsMultipleSelection == _allowsMultipleSelection)
+        return;
+    
+    //    If multiple selection is being disabled, update.
+    if (!allowsMultipleSelection) {
         [_selectedIndexPaths removeAllObjects];
         [UIView animateWithDuration:KKGridViewDefaultAnimationDuration delay:0 options:(UIViewAnimationOptionAllowAnimatedContent | UIViewAnimationOptionBeginFromCurrentState) animations:^{
             [self _layoutGridView];
@@ -285,51 +313,60 @@ struct KKSectionMetrics {
 
 - (void)setCellPadding:(CGSize)cellPadding
 {
-    _cellPadding = cellPadding;
-    if (_cellSize.width != 0.f && _cellSize.height != 0.f) {
+    //    Call for a total recalculation in the case a change as large as these (cell size as well) occurs.
+    if (!CGSizeEqualToSize(_cellPadding, cellPadding)) {
+        _cellPadding = cellPadding;
+        
+        [self _layoutModelCells];
         [self reloadData];
     }
 }
 
 - (void)setCellSize:(CGSize)cellSize
 {
-    _cellSize = cellSize;
-    if (_cellPadding.width != 0.f && _cellPadding.height != 0.f) {
+    if (!CGSizeEqualToSize(_cellSize, cellSize)) {
+        _cellSize = cellSize;
+        
+        [self _layoutModelCells];
         [self reloadData];
     }
 }
 
 - (void)setGridHeaderView:(UIView *)gridHeaderView
 {
-    if (gridHeaderView != _gridHeaderView) {
-        [_gridHeaderView removeFromSuperview];
-        _gridHeaderView = gridHeaderView;
-        
-        [self addSubview:gridHeaderView];
-        [self setNeedsLayout];
-    }
+    if (gridHeaderView == _gridHeaderView)
+        return;
+    
+    [_gridHeaderView removeFromSuperview];
+    _gridHeaderView = gridHeaderView;
+    
+    [self addSubview:gridHeaderView];
+    [self setNeedsLayout];
 }
 
 - (void)setGridFooterView:(UIView *)gridFooterView
 {
-    if (_gridFooterView != gridFooterView) {
-        _gridFooterView = gridFooterView;
-        
-        [self addSubview:gridFooterView];
-        [self setNeedsLayout];
-    }
+    if (gridFooterView == _gridFooterView)
+        return;
+    
+    [_gridFooterView removeFromSuperview];
+    _gridFooterView = gridFooterView;
+    
+    [self addSubview:gridFooterView];
+    [self setNeedsLayout];
 }
 
 - (void)setBackgroundView:(UIView *)backgroundView
 {
-    if (_backgroundView != backgroundView) {
-        [_backgroundView removeFromSuperview];
-        _backgroundView = backgroundView;
-        _backgroundView.frame = self.bounds;
-        
-        [self addSubview:_backgroundView];
-        [self sendSubviewToBack:_backgroundView];
-    }
+    if (backgroundView == _backgroundView)
+        return;
+    
+    [_backgroundView removeFromSuperview];
+    _backgroundView = backgroundView;
+    _backgroundView.frame = self.bounds;
+    
+    [self addSubview:_backgroundView];
+    [self sendSubviewToBack:_backgroundView];
 }
 
 #pragma mark - Root Layout Methods
@@ -353,7 +390,8 @@ struct KKSectionMetrics {
 #pragma mark - Private Layout Methods
 
 - (void)_layoutSectionViews
-{    
+{
+// TODO: Add checking to see if sticking status has actually changed for anything.
     CGRect visibleBounds = {
         self.contentOffset.x + self.contentInset.left,
         self.contentOffset.y + self.contentInset.top,
@@ -365,24 +403,50 @@ struct KKSectionMetrics {
     
     CGFloat offset = self.contentOffset.y + self.contentInset.top;
     
+    // If the user is providing titles, they want the default look.  GIVE IT.
+    static UIImage *headerBackgrounds[2] = {0};
+    
+    if (_dataSourceRespondsTo.titleForHeader || _dataSourceRespondsTo.titleForFooter) {
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            NSString *bundlePath = [[NSBundle mainBundle].resourcePath stringByAppendingPathComponent:@"KKGridView.bundle"];
+            NSBundle *bundle = [NSBundle bundleWithPath:bundlePath];
+            UIImage *(^getBundleImage)(NSString *) = ^(NSString *n) {
+                return [UIImage imageWithContentsOfFile:[bundle pathForResource:n ofType:@"png"]];
+            };
+            
+            headerBackgrounds[0] = getBundleImage(@"UISectionListHeaderBackground");
+            headerBackgrounds[1] = getBundleImage(@"UISectionListHeaderBackgroundOpaque");
+        });
+    }
+    
     for (KKGridViewHeader *header in _headerViews) {
+        // Get basic metrics
         CGRect f = header.view.frame;
         f.size.width = visibleBounds.size.width;
         CGFloat sectionY = header->stickPoint;
         
-        if (sectionY <= offset && offset > 0.0f) {
+        if (sectionY <= offset && offset >= 0.0f) {
+            // Section header is sticky
             f.origin.y = offset;
+            
+            if (_dataSourceRespondsTo.titleForHeader)
+                header.view.backgroundColor = [UIColor colorWithPatternImage:headerBackgrounds[1]];
             
             KKGridViewHeader *sectionTwo = [_headerViews count] > header->section + 1 ? [_headerViews objectAtIndex:header->section + 1] : nil;
             if (sectionTwo != nil) {
+                // Create the section pushing effect
                 CGFloat sectionTwoHeight = sectionTwo.view.frame.size.height;
                 CGFloat sectionTwoY = sectionTwo->stickPoint;
                 if ((offset + sectionTwoHeight) >= sectionTwoY) {
                     f.origin.y = sectionTwoY - sectionTwoHeight;
                 }
-            }
+            }            
         } else {
+            // Put header back to default position
             f.origin.y = header->stickPoint;
+            if (_dataSourceRespondsTo.titleForHeader)
+                header.view.backgroundColor = [UIColor colorWithPatternImage:headerBackgrounds[0]];
         }
         header.view.frame = f;
     }
@@ -416,12 +480,17 @@ struct KKSectionMetrics {
                 }
             }
             
+            if (_dataSourceRespondsTo.titleForFooter)
+                footer.view.backgroundColor = [UIColor colorWithPatternImage:headerBackgrounds[0]];
             
             // move footer view to right below scroller
             [footer.view removeFromSuperview];
             [self _insertSubviewBelowScrollbar:footer.view];
             
         } else {
+            if (_dataSourceRespondsTo.titleForFooter)
+                footer.view.backgroundColor = [UIColor colorWithPatternImage:headerBackgrounds[0]];
+            
             // footer isn't sticky anymore, set originTop to saved position
             f.origin.y = footer->stickPoint;
             [self insertSubview:footer.view aboveSubview:_backgroundView];
@@ -475,19 +544,18 @@ struct KKSectionMetrics {
             if (update.type == KKGridViewUpdateTypeItemInsert || update.type == KKGridViewUpdateTypeItemDelete) {
                 [self _incrementCellsAtIndexPath:indexPath 
                                      toIndexPath:[self _lastIndexPathForSection:indexPath.section]
-                                        byAmount:1
-                                        negative:KKGridViewUpdateIsNegative[update.type]];
+                                        byAmount:update.sign];
             }
             
             else if (update.type == KKGridViewUpdateTypeItemMove) {
-//                KKGridViewCell *cell = [_visibleCells objectForKey:indexPath];
-//                [UIView animateWithDuration:KKGridViewDefaultAnimationDuration
-//                                 animations:^{ updateCellFrame(cell, update.indexPath); }];
-//                [self _incrementCellsAtIndexPath:update.destinationPath
-//                                     toIndexPath:[self _lastIndexPathForSection:indexPath.section]
-//                                        byAmount:1
-//                                        negative:KKGridViewUpdateIsNegative[update.type]];
-//                [_updateStack removeUpdate:update];
+                //                KKGridViewCell *cell = [_visibleCells objectForKey:indexPath];
+                //                [UIView animateWithDuration:KKGridViewDefaultAnimationDuration
+                //                                 animations:^{ updateCellFrame(cell, update.indexPath); }];
+                //                [self _incrementCellsAtIndexPath:update.destinationPath
+                //                                     toIndexPath:[self _lastIndexPathForSection:indexPath.section]
+                //                                        byAmount:1
+                //                                        negative:KKGridViewUpdateIsNegative[update.type]];
+                //                [_updateStack removeUpdate:update];
             }
             
             
@@ -499,12 +567,11 @@ struct KKSectionMetrics {
                     [KKGridViewUpdateTypeItemDelete] = indexPath.index < keyPath.index && keyPath.index != 0
                 };
                 
-                NSInteger delta = KKGridViewUpdateIsNegative[update.type] ? -1 : 1;
                 if (conditionMap[update.type] && indexPath.section == keyPath.section) {
-                    [replacementSet addObject:[KKIndexPath indexPathForIndex:keyPath.index + delta inSection:keyPath.section]];
-                } else {
-                    [replacementSet addObject:keyPath];
+                    keyPath.index += update.sign;
                 }
+                
+                [replacementSet addObject:keyPath];
             }
             
             [_selectedIndexPaths setSet:replacementSet];
@@ -591,8 +658,10 @@ struct KKSectionMetrics {
         KKGridViewCell *cell = pair.cell;
         
         [self _enqueueCell:cell withIdentifier:cell.reuseIdentifier];
-        cell.frame = (CGRect){.size = _cellSize};
-        [cell removeFromSuperview];
+		if (!CGSizeEqualToSize(_cellSize, cell.frame.size))
+			cell.frame = (CGRect){.size = _cellSize};
+        cell.hidden = YES;
+        cell.alpha = 0.;
         
         [_visibleCells removeObjectForKey:pair.path];
     }
@@ -642,6 +711,20 @@ struct KKSectionMetrics {
     return height;
 }
 
+- (CGFloat)_sectionHeightsCombinedUpToRow:(NSUInteger)row inSection:(NSUInteger)section
+{
+    CGFloat height = 0.f;
+    for (NSUInteger index = 0; index < section && index < _metrics.count; index++) {
+        height += _metrics.sections[index].sectionHeight;
+    }
+    
+    for (NSUInteger index = 0; index < row; index++) {
+        height += _metrics.sections[section].rowHeight;
+    }
+    return height;
+}
+
+
 #pragma mark - Cell Management
 
 - (void)_displayCell:(KKGridViewCell *)cell atIndexPath:(KKIndexPath *)indexPath withAnimation:(KKGridViewAnimation)animation
@@ -665,10 +748,13 @@ struct KKSectionMetrics {
             break;
     }
     
-    if (_backgroundView)
-        [self insertSubview:cell aboveSubview:_backgroundView];
-    else
-        [self insertSubview:cell atIndex:0];
+    if (cell.superview) {
+        cell.hidden = NO;
+        cell.alpha = 1.;
+    } else {
+        BOOL subviewIndex = _backgroundView ? _rowViews.count + 1 : _rowViews.count;
+        [self insertSubview:cell atIndex:subviewIndex];
+    }
     
     switch (animation) {
         case KKGridViewAnimationExplode: {
@@ -748,7 +834,7 @@ struct KKSectionMetrics {
 - (KKIndexPath *)indexPathForItemAtPoint:(CGPoint)point
 {
     NSArray *indexes = [self indexPathsForItemsInRect:(CGRect){ point, {1.f, 1.f } }];
-    return ([indexes count] > 0) ? [indexes objectAtIndex:0] : [KKIndexPath indexPathForIndex:NSNotFound inSection:NSNotFound];
+    return indexes.count > 0 ? [indexes objectAtIndex:0] : [KKIndexPath indexPathForIndex:NSNotFound inSection:NSNotFound];
 }
 
 - (CGRect)rectForCellAtIndexPath:(KKIndexPath *)indexPath
@@ -768,13 +854,13 @@ struct KKSectionMetrics {
         point.y += _metrics.sections[indexPath.section].headerHeight;
     }
     
-    NSInteger row = floor(indexPath.index / _numberOfColumns);
+    NSInteger row = indexPath.index / _numberOfColumns;
     NSInteger column = indexPath.index - (row * _numberOfColumns);
     
     point.y += (row * (_cellSize.height + _cellPadding.height));
     point.x += (column * (_cellSize.width + _cellPadding.width));
     
-    return (CGRect){point, _cellSize};
+    return CGRectIntegral((CGRect){point, _cellSize});
 }
 
 - (KKGridViewCell *)dequeueReusableCellWithIdentifier:(NSString *)identifier 
@@ -799,7 +885,7 @@ struct KKSectionMetrics {
     const CGRect visibleBounds = {self.contentOffset, self.bounds.size};
     NSMutableArray *indexPaths = [[NSMutableArray alloc] initWithCapacity:12];
     
-    KKIndexPath *indexPath = [KKIndexPath indexPathForIndex:0 inSection:0];
+    KKIndexPath *indexPath = [KKIndexPath zeroIndexPath];
     
     for (NSUInteger section = 0; section < _metrics.count; section++) {
         indexPath.section = section;
@@ -821,7 +907,7 @@ struct KKSectionMetrics {
 
 #pragma mark - Model Modifiers
 
-- (void)_incrementCellsAtIndexPath:(KKIndexPath *)fromPath toIndexPath:(KKIndexPath *)toPath byAmount:(NSUInteger)amount negative:(BOOL)isNegative
+- (void)_incrementCellsAtIndexPath:(KKIndexPath *)fromPath toIndexPath:(KKIndexPath *)toPath byAmount:(NSInteger)amount
 {
     NSMutableDictionary *replacement = [[NSMutableDictionary alloc] init];
     [_visibleCells enumerateKeysAndObjectsUsingBlock:^(KKIndexPath *keyPath, KKGridViewCell *cell, BOOL *stop) {
@@ -834,12 +920,12 @@ struct KKSectionMetrics {
             BOOL indexPathIsLessOrEqual = pathComparison == NSOrderedAscending || pathComparison == NSOrderedSame;
             BOOL lastPathIsGreatorOrEqual = lastPathComparison == NSOrderedDescending || lastPathComparison == NSOrderedSame;
             
-            if (indexPathIsLessOrEqual && lastPathIsGreatorOrEqual && isNegative && pathComparison == NSOrderedSame) {
+            if (indexPathIsLessOrEqual && lastPathIsGreatorOrEqual && amount < 0 && pathComparison == NSOrderedSame) {
                 set = NO;
                 [UIView animateWithDuration:KKGridViewDefaultAnimationDuration animations:^{
                     cell.alpha = 0.f;
                 } completion:^(BOOL finished) {
-                    [cell removeFromSuperview];
+                    cell.hidden = YES;
                 }];
             }
             if (!indexPathIsLessOrEqual || !lastPathIsGreatorOrEqual) {
@@ -848,10 +934,10 @@ struct KKSectionMetrics {
         }
         
         if (set) {
-            NSInteger sign = isNegative ? -1 : 1;
-            NSUInteger index = (keyPath.section == fromPath.section) ? keyPath.index + (sign * amountForPath) : keyPath.index;
-            KKIndexPath *indexPath = [KKIndexPath indexPathForIndex:index inSection:keyPath.section];
-            [replacement setObject:cell forKey:indexPath];
+            if (keyPath.section == fromPath.section)
+                keyPath.index += amountForPath;
+            
+            [replacement setObject:cell forKey:keyPath];
         }
     }];
     [_visibleCells setDictionary:replacement];
@@ -887,29 +973,17 @@ struct KKSectionMetrics {
                 if (update.type == KKGridViewUpdateTypeItemInsert || update.type == KKGridViewUpdateTypeItemDelete) {
                     [self _incrementCellsAtIndexPath:indexPath 
                                          toIndexPath:[self _lastIndexPathForSection:indexPath.section]
-                                            byAmount:1 
-                                            negative:KKGridViewUpdateIsNegative[update.type]];
+                                            byAmount:update.sign];
                 }
                 
-                NSMutableSet *replacementSet = [[NSMutableSet alloc] initWithCapacity:[_selectedIndexPaths count]];
+                NSMutableSet *replacementSet = [[NSMutableSet alloc] initWithCapacity:_selectedIndexPaths.count];
                 
                 for (KKIndexPath *keyPath in _selectedIndexPaths) {
-                    if (update.type == KKGridViewUpdateTypeItemInsert) {
-                        if (indexPath.section == keyPath.section) {
-                            [replacementSet addObject:[KKIndexPath indexPathForIndex:keyPath.index + 1 inSection:keyPath.section]];
-                        } else {
-                            [replacementSet addObject:keyPath];
-                        }
-                    } else if (update.type == KKGridViewUpdateTypeItemDelete) {
-                        if (indexPath.section == keyPath.section) {
-                            if (keyPath.index > 0)
-                                [replacementSet addObject:[KKIndexPath indexPathForIndex:keyPath.index - 1 inSection:keyPath.section]];
-                        } else {
-                            [replacementSet addObject:keyPath];
-                        }
-                    } else {
+                    if (indexPath.section == keyPath.section)
+                        keyPath.index += update.sign;
+                    
+                    if (keyPath.index > 0)
                         [replacementSet addObject:keyPath];
-                    }
                 };
                 
                 [_selectedIndexPaths setSet:replacementSet];
@@ -962,15 +1036,15 @@ struct KKSectionMetrics {
     @throw [NSException exceptionWithName:@"Operation Not Implemented" 
                                    reason:@"KKGridViewUpdateTypeItemMove is not yet implemented. Sorry!"
                                  userInfo:nil];
-//    
-//    
-//    KKGridViewUpdate *update = [KKGridViewUpdate updateWithIndexPath:indexPath isSectionUpdate:NO type:KKGridViewUpdateTypeItemMove animation:KKGridViewAnimationNone];
-//    update.destinationPath = newIndexPath;
-//    [_updateStack addUpdate:update];
-//    
-//    _staggerForInsertion = YES;
-//    _markedForDisplay = YES;
-//    [self _layoutGridView];
+    //    
+    //    
+    //    KKGridViewUpdate *update = [KKGridViewUpdate updateWithIndexPath:indexPath isSectionUpdate:NO type:KKGridViewUpdateTypeItemMove animation:KKGridViewAnimationNone];
+    //    update.destinationPath = newIndexPath;
+    //    [_updateStack addUpdate:update];
+    //    
+    //    _staggerForInsertion = YES;
+    //    _markedForDisplay = YES;
+    //    [self _layoutGridView];
 }
 
 - (void)reloadItemsAtIndexPaths:(NSArray *)indexPaths
@@ -978,7 +1052,8 @@ struct KKSectionMetrics {
     for (KKIndexPath *path in indexPaths) {
         KKGridViewCell *cell = [_visibleCells objectForKey:path];
         if (cell) {
-            [cell removeFromSuperview];
+            cell.hidden = YES;
+            cell.alpha = 0.;
             [_visibleCells removeObjectForKey:path];
         }
         
@@ -993,7 +1068,7 @@ struct KKSectionMetrics {
 {
     [self reloadContentSize];
     
-    void (^clearSectionViews)(NSMutableArray *) = ^(NSMutableArray *views) {
+    void (^clearViewsInArray)(NSMutableArray *) = ^(NSMutableArray *views) {
         for (id view in [views valueForKey:@"view"]) {
             if (view != [NSNull null])
                 [view removeFromSuperview];
@@ -1003,7 +1078,7 @@ struct KKSectionMetrics {
     };
     
     if (_dataSourceRespondsTo.viewForHeader || _dataSourceRespondsTo.titleForHeader) {
-        clearSectionViews(_headerViews);
+        clearViewsInArray(_headerViews);
         if (!_headerViews)
         {
             _headerViews = [[NSMutableArray alloc] initWithCapacity:_metrics.count];
@@ -1021,8 +1096,45 @@ struct KKSectionMetrics {
         }
     }
     
+    if (_dataSourceRespondsTo.viewForRow) {
+        clearViewsInArray(_rowViews);
+        if (!_rowViews)
+        {
+            _rowViews = [[NSMutableArray alloc] initWithCapacity:_metrics.count];
+        }
+        
+        for (NSUInteger section = 0; section < _metrics.count; section++) {
+            NSInteger previouslyCheckedRow = -1;
+            
+            for (NSUInteger index = 0; index < _metrics.sections[section].itemCount; index++) {
+                NSInteger row = index / _numberOfColumns;
+                
+                if (row <= previouslyCheckedRow)
+                    continue;
+                
+                previouslyCheckedRow = row;
+                
+                UIView *view = [_dataSource gridView:self viewForRow:row inSection:section];
+                if (!view) {
+                    continue;
+                }
+                
+                KKGridViewRowBackground *rowBackground = [[KKGridViewRowBackground alloc] initWithView:view];
+                [_rowViews addObject:rowBackground];
+                
+                CGFloat rowHeight = _cellSize.height + _cellPadding.height;
+                CGFloat position = [self _sectionHeightsCombinedUpToRow:row inSection:section] + _gridHeaderView.frame.size.height;
+                [self _configureSectionView:rowBackground inSection:section withStickPoint:position height:rowHeight];
+                
+                if (_backgroundView)
+                    [self insertSubview:rowBackground.view aboveSubview:_backgroundView];
+                else [self insertSubview:rowBackground.view atIndex:0];
+            }
+        }
+    }
+    
     if (_dataSourceRespondsTo.viewForFooter || _dataSourceRespondsTo.titleForFooter) {
-        clearSectionViews(_footerViews);
+        clearViewsInArray(_footerViews);
         if (!_footerViews)
         {
             _footerViews = [[NSMutableArray alloc] initWithCapacity:_metrics.count];
@@ -1081,7 +1193,8 @@ struct KKSectionMetrics {
     for (KKGridViewCell *cell in [_visibleCells allValues]) {
         NSMutableSet *set = [self _reusableCellSetForIdentifier:cell.reuseIdentifier];
         [set addObject:cell];
-        [cell removeFromSuperview];
+        cell.hidden = YES;
+        cell.alpha = 0.;
     }
     
     [_visibleCells removeAllObjects];
@@ -1114,12 +1227,12 @@ struct KKSectionMetrics {
         CGFloat heightForSection = 0.f;
         
         struct KKSectionMetrics sectionMetrics = _metrics.sections[i];
+        _metrics.sections[i].rowHeight = (_cellSize.height + _cellPadding.height);
         
         heightForSection += sectionMetrics.headerHeight + sectionMetrics.footerHeight;
         
         NSUInteger numberOfRows = ceilf(sectionMetrics.itemCount / (float)_numberOfColumns);
-        
-        heightForSection += numberOfRows * (_cellSize.height + _cellPadding.height);
+        heightForSection += numberOfRows * _metrics.sections[i].rowHeight;
         heightForSection += (numberOfRows? _cellPadding.height:0.f);
         
         _metrics.sections[i].sectionHeight = heightForSection;
@@ -1194,11 +1307,7 @@ struct KKSectionMetrics {
     }
     
     if (!headerView && _dataSourceRespondsTo.titleForHeader) {
-        UILabel *label = [[UILabel alloc] initWithFrame:CGRectZero];
-        label.backgroundColor = [UIColor darkGrayColor];
-        label.textColor = [UIColor lightTextColor];
-        label.textAlignment = UITextAlignmentCenter;
-        label.text = [_dataSource gridView:self titleForHeaderInSection:section];
+        KKGridViewSectionLabel *label = [[KKGridViewSectionLabel alloc] initWithString:[_dataSource gridView:self titleForHeaderInSection:section]];
         headerView = label;
     }
     
@@ -1216,11 +1325,7 @@ struct KKSectionMetrics {
     }
     
     if (!footerView && _dataSourceRespondsTo.titleForFooter) {
-        UILabel *label = [[UILabel alloc] initWithFrame:CGRectZero];
-        label.backgroundColor = [UIColor colorWithRed:0.772f green:0.788f blue:0.816f alpha:1.f];
-        label.textAlignment = UITextAlignmentCenter;
-        label.textColor = [UIColor darkGrayColor];
-        label.text = [_dataSource gridView:self titleForFooterInSection:section];
+        KKGridViewSectionLabel *label = [[KKGridViewSectionLabel alloc] initWithString:[_dataSource gridView:self titleForFooterInSection:section]];
         footerView = label;
     }
     
@@ -1246,24 +1351,18 @@ struct KKSectionMetrics {
         return;
     }
     
-    if (animated) {
-        [UIView beginAnimations:nil context:NULL];
-        [UIView setAnimationDuration:0.3];
-    }
-    
     CGFloat boundsHeight = self.bounds.size.height - self.contentInset.bottom;
     CGFloat headerPlusPadding = _metrics.sections[indexPath.section].headerHeight + self.cellPadding.height;
     
-    CGFloat offsetMap[] = {
-        [KKGridViewScrollPositionTop] = CGRectGetMinY(cellRect) + self.contentInset.top - headerPlusPadding,
-        [KKGridViewScrollPositionBottom] = CGRectGetMaxY(cellRect) - boundsHeight + headerPlusPadding,
-        [KKGridViewScrollPositionMiddle] = CGRectGetMaxY(cellRect) - (boundsHeight / 2)
-    };
-    
-    self.contentOffset = (CGPoint) {.y = offsetMap[scrollPosition]};
-    
-    if (animated)
-        [UIView commitAnimations];
+    [KKGridView animateIf:animated duration:0.3 delay:0.f options:0 block:^{
+        CGFloat const offsetMap[] = {
+            [KKGridViewScrollPositionTop] = CGRectGetMinY(cellRect) + self.contentInset.top - headerPlusPadding,
+            [KKGridViewScrollPositionBottom] = CGRectGetMaxY(cellRect) - boundsHeight + headerPlusPadding,
+            [KKGridViewScrollPositionMiddle] = CGRectGetMaxY(cellRect) - (boundsHeight / 2)
+        };
+        
+        self.contentOffset = (CGPoint) {.y = offsetMap[scrollPosition]};
+    }];
 }
 
 #pragma mark - Public Selection Methods
@@ -1289,6 +1388,13 @@ struct KKSectionMetrics {
         for (KKIndexPath *indexPath in indexPaths) {
             [self _deselectItemAtIndexPath:indexPath];
         }
+    }];
+}
+
+- (void)deselectAll: (BOOL)animated
+{
+    [KKGridView animateIf:animated delay:0.f options:0 block:^{
+        [self _deselectAll];
     }];
 }
 
@@ -1354,9 +1460,26 @@ struct KKSectionMetrics {
     }
 }
 
+
+- (void)_deselectAll
+{
+    for (KKIndexPath* indexPath in _selectedIndexPaths)
+    {
+        KKGridViewCell *cell = [_visibleCells objectForKey:indexPath];
+        cell.selected = NO;
+        
+        if(_delegateRespondsTo.willDeselectItem)
+        {
+            [_gridDelegate gridView:self willDeselectItemAtIndexPath:indexPath];
+        }
+    }
+    
+    [_selectedIndexPaths removeAllObjects];
+}
+
 - (void)_deselectItemAtIndexPath:(KKIndexPath *)indexPath
 {
-    if (_selectedIndexPaths.count > 0 && _delegateRespondsTo.willDeselectItem) {
+    if (_selectedIndexPaths.count > 0 && _delegateRespondsTo.willDeselectItem && indexPath.index != NSNotFound && indexPath.section != NSNotFound) {
         KKIndexPath *redirectedPath = [_gridDelegate gridView:self willDeselectItemAtIndexPath:indexPath];
         if (redirectedPath != nil && ![redirectedPath isEqual:indexPath]) {
             indexPath = redirectedPath ? redirectedPath : indexPath;
@@ -1374,6 +1497,11 @@ struct KKSectionMetrics {
     }
 }
 
+- (NSUInteger)selectedItemCount
+{
+    return _selectedIndexPaths.count;
+}
+
 
 #pragma mark - Touch Handling
 
@@ -1382,9 +1510,6 @@ struct KKSectionMetrics {
     UIGestureRecognizerState state = recognizer.state;
     CGPoint locationInSelf = [recognizer locationInView:self];
     
-	if (_manualHeaderView && CGRectContainsPoint(_manualHeaderView.frame, [recognizer locationInView:self]))
-        return;
-	
     if (_indexView) {
         if (state == UIGestureRecognizerStateBegan && CGRectContainsPoint(_indexView.frame, locationInSelf)) {
             self.scrollEnabled = NO;
@@ -1407,10 +1532,10 @@ struct KKSectionMetrics {
     
     KKIndexPath *indexPath = [self indexPathForItemAtPoint:locationInSelf];
     
-    if (_delegateRespondsTo.willSelectItem)
+    if (state == UIGestureRecognizerStateEnded && _delegateRespondsTo.willSelectItem)
         indexPath = [_gridDelegate gridView:self willSelectItemAtIndexPath:indexPath];
     
-    if (indexPath.index == NSNotFound || indexPath.section == NSNotFound) {
+    if (!indexPath || indexPath.index == NSNotFound || indexPath.section == NSNotFound) {
         [self _cancelHighlighting];
         return;
     }
@@ -1434,29 +1559,38 @@ struct KKSectionMetrics {
     return (gestureRecognizer == _selectionRecognizer || otherGestureRecognizer == _selectionRecognizer);
 }
 
+#pragma mark - KVO
 
-#pragma mark - UIScrollViewDelegate
-
-- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
 {
-    [self _cancelHighlighting];
-}
-
-- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
-    _indexView.frame = (CGRect) {
-        {_indexView.frame.origin.x, scrollView.contentOffset.y},
-        _indexView.frame.size
-    };
+    if ([keyPath isEqualToString:@"contentOffset"]) {
+        _indexView.frame = (CGRect) {
+            {_indexView.frame.origin.x, self.contentOffset.y},
+            _indexView.frame.size
+        };
+        [self _cancelHighlighting];
+    }
+    
+    else if ([keyPath isEqualToString:@"tracking"]) {
+        if (self.tracking && !self.dragging) {
+            [self _cancelHighlighting];
+        }
+    }
 }
 
 #pragma mark - Animation Helpers
 
-+ (void)animateIf:(BOOL)animated delay:(NSTimeInterval)delay options:(UIViewAnimationOptions)options block:(void(^)())block
++ (void)animateIf:(BOOL)animated duration:(NSTimeInterval)duration delay:(NSTimeInterval)delay options:(UIViewAnimationOptions)options block:(void(^)())block
 {
     if (animated)
-        [UIView animateWithDuration:KKGridViewDefaultAnimationDuration delay:delay options:options animations:block completion:nil];
+        [UIView animateWithDuration:duration delay:delay options:options animations:block completion:nil];
     else
         block();
+}
+
++ (void)animateIf:(BOOL)animated delay:(NSTimeInterval)delay options:(UIViewAnimationOptions)options block:(void(^)())block
+{
+    [self animateIf:animated duration:KKGridViewDefaultAnimationDuration delay:delay options:options block:block];
 }
 
 @end
