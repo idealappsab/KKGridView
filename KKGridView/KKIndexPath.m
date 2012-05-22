@@ -48,7 +48,7 @@
     return NSOrderedSame;
 }
 
-+ (NSArray *) indexPathsWithNSIndexPaths:(NSArray *) indexPaths
++ (NSArray *)indexPathsWithNSIndexPaths:(NSArray *)indexPaths
 {
     NSMutableArray *convertedIndexPaths = [NSMutableArray array];
 
@@ -113,6 +113,19 @@
 
 - (NSIndexPath *)NSIndexPath {
     return [NSIndexPath indexPathForRow:_index inSection:_section];
+}
+
+#pragma mark - Convenience
+
++ (KKIndexPath *)zeroIndexPath {
+	static KKIndexPath *indexPath = nil;
+    
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        indexPath = [[self alloc] initWithIndex:0 section:0];
+    });
+    
+	return indexPath;
 }
 
 @end
