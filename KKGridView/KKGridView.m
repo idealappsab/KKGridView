@@ -144,6 +144,7 @@ struct KKSectionMetrics {
 
 @synthesize gridFooterView = _gridFooterView;
 @synthesize gridHeaderView = _gridHeaderView;
+@synthesize manualHeaderView = _manualHeaderView;
 
 @synthesize cellPadding = _cellPadding;
 @synthesize cellSize = _cellSize;
@@ -1510,6 +1511,9 @@ struct KKSectionMetrics {
     UIGestureRecognizerState state = recognizer.state;
     CGPoint locationInSelf = [recognizer locationInView:self];
     
+	if (_manualHeaderView && CGRectContainsPoint(_manualHeaderView.frame, [recognizer locationInView:self]))
+        return;
+	
     if (_indexView) {
         if (state == UIGestureRecognizerStateBegan && CGRectContainsPoint(_indexView.frame, locationInSelf)) {
             self.scrollEnabled = NO;

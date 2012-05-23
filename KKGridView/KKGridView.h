@@ -47,6 +47,7 @@ typedef enum {
 @property (nonatomic) CGSize cellSize;
 @property (nonatomic, strong) UIView *gridFooterView;
 @property (nonatomic, strong) UIView *gridHeaderView;
+@property (nonatomic, strong) UIView *manualHeaderView;
 @property (nonatomic) KKGridViewLayoutDirection layoutDirection;
 @property (nonatomic, readonly) NSUInteger numberOfColumns;
 @property (nonatomic, readonly) NSUInteger numberOfSections;
