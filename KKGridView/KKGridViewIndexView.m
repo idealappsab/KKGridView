@@ -30,7 +30,7 @@ static CGFloat const KKGridViewIndexViewMargin = 7.0;
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
             backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.25];
-            fontColor = [UIColor colorWithWhite:0.0 alpha:0.75];
+            fontColor = [UIColor colorWithWhite:1.0 alpha:0.75];
             font = [UIFont boldSystemFontOfSize:12.0];
         });
     }
