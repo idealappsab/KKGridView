@@ -144,6 +144,7 @@ struct KKSectionMetrics {
 
 @synthesize gridFooterView = _gridFooterView;
 @synthesize gridHeaderView = _gridHeaderView;
+@synthesize manualHeaderView = _manualHeaderView;
 
 @synthesize cellPadding = _cellPadding;
 @synthesize cellSize = _cellSize;
@@ -1163,6 +1164,12 @@ struct KKSectionMetrics {
                 _indexView = [[KKGridViewIndexView alloc] initWithFrame:CGRectZero];
             
             _indexView.sectionIndexTitles = indexes;
+        
+            if ([_dataSource respondsToSelector:@selector(colorForSectionIndexTitlesForGridView:)]) {
+                _indexView.fontColor = [_dataSource colorForSectionIndexTitlesForGridView:self];
+            }else{
+                _indexView.fontColor = [UIColor whiteColor];
+            }
             
             __kk_weak KKGridView *weakSelf = self;
             [_indexView setSectionTracked:^(NSUInteger section) {
@@ -1510,6 +1517,9 @@ struct KKSectionMetrics {
     UIGestureRecognizerState state = recognizer.state;
     CGPoint locationInSelf = [recognizer locationInView:self];
     
+	if (_manualHeaderView && CGRectContainsPoint(_manualHeaderView.frame, [recognizer locationInView:self]))
+        return;
+	
     if (_indexView) {
         if (state == UIGestureRecognizerStateBegan && CGRectContainsPoint(_indexView.frame, locationInSelf)) {
             self.scrollEnabled = NO;

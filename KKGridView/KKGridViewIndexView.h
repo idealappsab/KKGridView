@@ -11,6 +11,7 @@
 @property (nonatomic, strong) NSArray *sectionIndexTitles; // Array with NSStrings
 @property (nonatomic, copy) void (^sectionTracked)(NSUInteger section);
 @property (nonatomic, assign) BOOL tracking;
+@property (nonatomic, assign) UIColor *fontColor;
 
 - (void)setTracking:(BOOL)tracking location:(CGPoint)location;
 @end

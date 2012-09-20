@@ -47,6 +47,7 @@ typedef enum {
 @property (nonatomic) CGSize cellSize;
 @property (nonatomic, strong) UIView *gridFooterView;
 @property (nonatomic, strong) UIView *gridHeaderView;
+@property (nonatomic, strong) UIView *manualHeaderView;
 @property (nonatomic) KKGridViewLayoutDirection layoutDirection;
 @property (nonatomic, readonly) NSUInteger numberOfColumns;
 @property (nonatomic, readonly) NSUInteger numberOfSections;
@@ -112,6 +113,7 @@ typedef enum {
 - (UIView *)gridView:(KKGridView *)gridView viewForFooterInSection:(NSUInteger)section;
 - (UIView *)gridView:(KKGridView *)gridView viewForRow:(NSUInteger)row inSection:(NSUInteger)section; // a row is compromised of however many cells fit in a column of a given section
 - (NSArray *)sectionIndexTitlesForGridView:(KKGridView *)gridView;
+- (UIColor *)colorForSectionIndexTitlesForGridView:(KKGridView *)gridView;
 - (NSInteger)gridView:(KKGridView *)gridView sectionForSectionIndexTitle:(NSString *)title atIndex:(NSInteger)index;
 @end
 

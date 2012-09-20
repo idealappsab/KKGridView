@@ -8,7 +8,6 @@
 #import "KKGridViewIndexView.h"
 
 static UIColor *backgroundColor = nil;
-static UIColor *fontColor = nil;
 static UIFont *font = nil;
 
 static CGFloat const KKGridViewIndexViewPadding = 7.0;
@@ -24,15 +23,15 @@ static CGFloat const KKGridViewIndexViewMargin = 7.0;
 @synthesize sectionIndexTitles = _sectionIndexTitles;
 @synthesize sectionTracked = _sectionTracked;
 @synthesize tracking = _tracking;
+@synthesize fontColor = _fontColor;
 
 + (void)initialize {
     if (self == [KKGridViewIndexView class]) {
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
             backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.25];
-            fontColor = [UIColor colorWithWhite:0.0 alpha:0.75];
             font = [UIFont boldSystemFontOfSize:12.0];
-        });
+        });        
     }
 }
 
@@ -61,7 +60,7 @@ static CGFloat const KKGridViewIndexViewMargin = 7.0;
     CGFloat currentSectionTop = KKGridViewIndexViewMargin;
     
     // Draw the titles in the center of its section
-    [fontColor set];
+    [_fontColor set];
     
     for (NSString *title in _sectionIndexTitles) {
         CGSize currentTitleSize = [title sizeWithFont:font];
